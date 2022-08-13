@@ -27,7 +27,7 @@ AE_TST = [10921,10923,10927,10930,10934,10941,10943,10944,10948,10952,10957,1095
 TARGET_LABEL = [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
 MODEL_ATTACKPATH = 'gtsrb_semantic_34_attack.h5'
 NUM_CLASSES = 43
-TARGET_CLASS = 0
+TARGET_CLASS = 34
 
 DATA_DIR = RESULT_DIR  # data folder
 DATA_FILE = 'gtsrb_dataset.h5'  # dataset file
@@ -36,15 +36,15 @@ def main():
     # Read MNIST dataset (x_raw contains the original images):
     min_ = 0.
     max_ = 1.
-    x_train_c, y_train_c, x_test_c, y_test_c, x_train_adv, y_train_adv, x_test_adv, y_test_adv, is_poison_train = load_dataset_repair()
+    x_train_clean, y_train_clean, x_train_mix, y_train_mix, x_test_mix, y_test_mix, _, _, x_test_adv, y_test_adv, is_poison_train = load_dataset()
 
     model = load_model('%s/%s' % (RESULT_DIR, MODEL_ATTACKPATH))
 
     classifier = KerasClassifier(model=model, clip_values=(min_, max_))
 
     # Evaluate the classifier on the test set
-    preds = np.argmax(classifier.predict(x_test_c), axis=1)
-    acc = np.sum(preds == np.argmax(y_test_c, axis=1)) / y_test_c.shape[0]
+    preds = np.argmax(classifier.predict(x_test_mix), axis=1)
+    acc = np.sum(preds == np.argmax(y_test_mix, axis=1)) / y_test_mix.shape[0]
     print("\nTest accuracy: %.2f%%" % (acc * 100))
 
     # Evaluate the classifier on poisonous data
@@ -53,12 +53,12 @@ def main():
     print("\nPoisonous test set accuracy (i.e. effectiveness of poison): %.2f%%" % (acc * 100))
 
     # Evaluate the classifier on clean data
-    preds = np.argmax(classifier.predict(x_train_c), axis=1)
-    acc = np.sum(preds == np.argmax(y_train_c, axis=1)) / y_train_c.shape[0]
+    preds = np.argmax(classifier.predict(x_train_clean), axis=1)
+    acc = np.sum(preds == np.argmax(y_train_clean, axis=1)) / y_train_clean.shape[0]
     print("\nClean test set accuracy: %.2f%%" % (acc * 100))
 
     # Calling poisoning defence:
-    defence = ActivationDefence(classifier, x_train_c, y_train_c)
+    defence = ActivationDefence(classifier, x_train_mix, y_train_mix)
 
     # End-to-end method:
     print("------------------- Results using size metric -------------------")
@@ -76,7 +76,7 @@ def main():
 
     # Visualize clusters:
     print("Visualize clusters")
-    sprites_by_class = defence.visualize_clusters(x_train_c, RESULT_DIR + "poison_demo")
+    sprites_by_class = defence.visualize_clusters(x_train_mix, RESULT_DIR + "poison_demo")
     # Show plots for clusters of class 5
     #for n_class in range (0, 10):
     n_class = TARGET_CLASS
@@ -120,8 +120,7 @@ def main():
     '''
     print("done :) ")
 
-
-def load_dataset_repair(data_file=('%s/%s' % (DATA_DIR, DATA_FILE))):
+def load_dataset(data_file=('%s/%s' % (DATA_DIR, DATA_FILE))):
     '''
     split test set: first half for fine tuning, second half for validation
     @return
@@ -164,25 +163,30 @@ def load_dataset_repair(data_file=('%s/%s' % (DATA_DIR, DATA_FILE))):
 
     #print(idx)
 
+    DATA_SPLIT = 0.3
+
     x_adv = x_adv[idx, :]
     y_adv_c = y_adv_c[idx, :]
     #'''
 
-    x_train_c = np.concatenate((x_clean[int(len(x_clean) * 0.5):], x_adv[int(len(x_adv) * 0.3):]), axis=0)
-    y_train_c = np.concatenate((y_clean[int(len(y_clean) * 0.5):], y_adv_c[int(len(y_adv_c) * 0.3):]), axis=0)
+    x_train_clean = x_clean[int(len(x_clean) * DATA_SPLIT):]
+    y_train_clean = y_clean[int(len(y_clean) * DATA_SPLIT):]
 
-    x_test_c = np.concatenate((x_clean[:int(len(x_clean) * 0.5)], x_adv[:int(len(x_adv) * 0.3)]), axis=0)
-    y_test_c = np.concatenate((y_clean[:int(len(y_clean) * 0.5)], y_adv_c[:int(len(y_adv_c) * 0.3)]), axis=0)
+    x_train_mix = np.concatenate((x_clean[int(len(x_clean) * DATA_SPLIT):], x_adv[int(len(x_adv) * DATA_SPLIT):]), axis=0)
+    y_train_mix = np.concatenate((y_clean[int(len(y_clean) * DATA_SPLIT):], y_adv_c[int(len(y_adv_c) * DATA_SPLIT):]), axis=0)
 
-    is_poison_train = np.append(np.zeros(len(x_clean[int(len(x_clean) * 0.5):])), np.ones(len(x_adv[int(len(x_adv) * 0.3):])), axis=0)
+    x_test_mix = np.concatenate((x_clean[:int(len(x_clean) * DATA_SPLIT)], x_adv[:int(len(x_adv) * DATA_SPLIT)]), axis=0)
+    y_test_mix = np.concatenate((y_clean[:int(len(y_clean) * DATA_SPLIT)], y_adv_c[:int(len(y_adv_c) * DATA_SPLIT)]), axis=0)
 
-    x_train_adv = x_adv[int(len(y_adv) * 0.3):]
-    y_train_adv = y_adv[int(len(y_adv) * 0.3):]
-    x_test_adv = x_adv[:int(len(y_adv) * 0.3)]
-    y_test_adv = y_adv[:int(len(y_adv) * 0.3)]
+    # is poison in x_train_mix
+    is_poison_train = np.append(np.zeros(len(x_clean[int(len(x_clean) * DATA_SPLIT):])), np.ones(len(x_adv[int(len(x_adv) * DATA_SPLIT):])), axis=0)
 
-    return x_train_c, y_train_c, x_test_c, y_test_c, x_train_adv, y_train_adv, x_test_adv, y_test_adv, is_poison_train
+    x_train_adv = x_adv[int(len(y_adv) * DATA_SPLIT):]
+    y_train_adv = y_adv[int(len(y_adv) * DATA_SPLIT):]
+    x_test_adv = x_adv[:int(len(y_adv) * DATA_SPLIT)]
+    y_test_adv = y_adv[:int(len(y_adv) * DATA_SPLIT)]
 
+    return x_train_clean, y_train_clean, x_train_mix, y_train_mix, x_test_mix, y_test_mix, x_train_adv, y_train_adv, x_test_adv, y_test_adv, is_poison_train
 
 
 if __name__ == "__main__":
